@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "904888632158",
+    "project_id": "telegram-bot-613f1",
+    "storage_bucket": "telegram-bot-613f1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:904888632158:android:ad79f7f056885e44a245cf",
+        "android_client_info": {
+          "package_name": "com.example.telegram_bot"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD3oD-_7eOBqvjLOvOMETMUJCVBIzvedns"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
