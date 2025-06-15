@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../screens/signup_screen.dart';
+import '../screens/home_screen.dart';
 import '../widgets/custom_scaffold.dart';
 import '../theme/theme.dart';
 
@@ -13,6 +15,128 @@ class SignInScreen extends StatefulWidget {
 class _SignInScreenState extends State<SignInScreen> {
   final _formSignInKey = GlobalKey<FormState>();
   bool rememberPassword = true;
+
+  // Contrôleurs pour les champs
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+
+  // Instance de FirebaseAuth
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  // Fonction de connexion
+  Future<void> _signIn() async {
+    if (_formSignInKey.currentState!.validate()) {
+      try {
+        // Authentifier l'utilisateur
+        await _auth.signInWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+
+        // Vérifier si le widget est toujours monté
+        if (!mounted) return;
+
+        // Afficher un message de succès
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Sign in successful!')),
+        );
+
+        // Rediriger vers HomeScreen
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        );
+      } on FirebaseAuthException catch (e) {
+        // Vérifier si le widget est toujours monté
+        if (!mounted) return;
+
+        String message;
+        switch (e.code) {
+          case 'user-not-found':
+            message = 'No user found for this email.';
+            break;
+          case 'wrong-password':
+            message = 'Incorrect password.';
+            break;
+          case 'invalid-email':
+            message = 'The email address is invalid.';
+            break;
+          case 'invalid-credential':
+            message = 'Invalid credentials provided.';
+            break;
+          default:
+            message = 'An error occurred: ${e.message}';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+      } catch (e) {
+        // Vérifier si le widget est toujours monté
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } else if (!rememberPassword) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please check "Remember me" to proceed.'),
+        ),
+      );
+    }
+  }
+
+  // Fonction de réinitialisation du mot de passe
+  Future<void> _resetPassword() async {
+    if (_emailController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your email first.')),
+      );
+      return;
+    }
+    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(_emailController.text.trim())) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid email.')),
+      );
+      return;
+    }
+    try {
+      await _auth.sendPasswordResetEmail(email: _emailController.text.trim());
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password reset email sent! Check your inbox.')),
+      );
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      String message;
+      switch (e.code) {
+        case 'invalid-email':
+          message = 'The email address is invalid.';
+          break;
+        case 'user-not-found':
+          message = 'No user found for this email.';
+          break;
+        default:
+          message = 'An error occurred: ${e.message}';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,10 +173,15 @@ class _SignInScreenState extends State<SignInScreen> {
                         ),
                       ),
                       const SizedBox(height: 40.0),
+                      // Champ email
                       TextFormField(
+                        controller: _emailController,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please enter Email';
+                          }
+                          if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                            return 'Please enter a valid Email';
                           }
                           return null;
                         },
@@ -71,7 +200,9 @@ class _SignInScreenState extends State<SignInScreen> {
                         ),
                       ),
                       const SizedBox(height: 25.0),
+                      // Champ mot de passe
                       TextFormField(
+                        controller: _passwordController,
                         obscureText: true,
                         obscuringCharacter: '*',
                         validator: (value) {
@@ -95,6 +226,7 @@ class _SignInScreenState extends State<SignInScreen> {
                         ),
                       ),
                       const SizedBox(height: 25.0),
+                      // Case à cocher et mot de passe oublié
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -116,6 +248,7 @@ class _SignInScreenState extends State<SignInScreen> {
                             ],
                           ),
                           GestureDetector(
+                            onTap: _resetPassword,
                             child: Text(
                               'Forget password?',
                               style: TextStyle(
@@ -127,30 +260,16 @@ class _SignInScreenState extends State<SignInScreen> {
                         ],
                       ),
                       const SizedBox(height: 25.0),
+                      // Bouton de connexion
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: () {
-                            if (_formSignInKey.currentState!.validate() &&
-                                rememberPassword) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Processing Data'),
-                                ),
-                              );
-                            } else if (!rememberPassword) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                      'Please agree to the processing of personal data'),
-                                ),
-                              );
-                            }
-                          },
-                          child: const Text('Sign in'), // ✅ corrigé ici
+                          onPressed: _signIn,
+                          child: const Text('Sign in'),
                         ),
                       ),
                       const SizedBox(height: 25.0),
+                      // Lien vers inscription
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
