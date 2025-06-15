@@ -1,6 +1,6 @@
-# telegram_bot
+# Bot_Candidature
 
-A new Flutter project.
+Un bot Telegram développé avec Flutter, pour gérer des candidatures automatiquement.
 
 ## Getting Started
 
