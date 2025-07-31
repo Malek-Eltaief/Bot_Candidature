@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../screens/signin_screen.dart';
 import '../theme/theme.dart';
 import '../widgets/custom_scaffold.dart';
+import '../services/auth_service.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -12,81 +12,16 @@ class SignUpScreen extends StatefulWidget {
 }
 
 class _SignUpScreenState extends State<SignUpScreen> {
-  final _formSignupKey = GlobalKey<FormState>();
-  bool agreePersonalData = true;
+  final _formKey = GlobalKey<FormState>();
+  final _fullNameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
 
-  // Contrôleurs pour les champs
-  final TextEditingController _fullNameController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
+  bool _agreeToTerms = false;
+  bool _obscurePassword = true;
+  String? _selectedRole = 'candidate';
 
-  // Instance de FirebaseAuth
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-
-  // Fonction d'inscription
-  Future<void> _signUp() async {
-    if (_formSignupKey.currentState!.validate() && agreePersonalData) {
-      try {
-        // Créer un compte utilisateur
-        UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
-        );
-
-        // Mettre à jour le nom d'affichage
-        await userCredential.user!.updateDisplayName(_fullNameController.text.trim());
-
-        // Vérifier si le widget est toujours monté avant d'utiliser context
-        if (!mounted) return;
-
-        // Afficher un message de succès
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Sign up successful!')),
-        );
-
-        // Rediriger vers SignInScreen
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const SignInScreen()),
-        );
-      } on FirebaseAuthException catch (e) {
-        // Vérifier si le widget est toujours monté avant d'utiliser context
-        if (!mounted) return;
-
-        String message;
-        switch (e.code) {
-          case 'weak-password':
-            message = 'The password is too weak (minimum 6 characters).';
-            break;
-          case 'email-already-in-use':
-            message = 'This email is already in use.';
-            break;
-          case 'invalid-email':
-            message = 'The email address is invalid.';
-            break;
-          default:
-            message = 'An error occurred: ${e.message}';
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
-      } catch (e) {
-        // Vérifier si le widget est toujours monté avant d'utiliser context
-        if (!mounted) return;
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
-    } else if (!agreePersonalData) {
-      // Pas besoin de vérifier mounted ici car pas d'async
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please agree to the processing of personal data'),
-        ),
-      );
-    }
-  }
+  final AuthService _authService = AuthService();
 
   @override
   void dispose() {
@@ -96,29 +31,50 @@ class _SignUpScreenState extends State<SignUpScreen> {
     super.dispose();
   }
 
+  Future<void> _signUp() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    try {
+      await _authService.signUp(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+        fullName: _fullNameController.text.trim(),
+        role: _selectedRole!,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sign up successful!')),
+      );
+
+      _formKey.currentState!.reset();
+      setState(() {
+        _selectedRole = 'candidate';
+        _agreeToTerms = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return CustomScaffold(
       child: Column(
         children: [
-          const Expanded(
-            flex: 1,
-            child: SizedBox(height: 10),
-          ),
+          const Expanded(flex: 1, child: SizedBox()),
           Expanded(
             flex: 7,
             child: Container(
               padding: const EdgeInsets.fromLTRB(25.0, 50.0, 25.0, 20.0),
               decoration: const BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(40.0),
-                  topRight: Radius.circular(40.0),
-                ),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(40)),
               ),
               child: SingleChildScrollView(
                 child: Form(
-                  key: _formSignupKey,
+                  key: _formKey,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
@@ -130,149 +86,34 @@ class _SignUpScreenState extends State<SignUpScreen> {
                           color: lightColorScheme.primary,
                         ),
                       ),
-                      const SizedBox(height: 40.0),
-                      // Champ nom complet
-                      TextFormField(
-                        controller: _fullNameController,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter Full name';
-                          }
-                          return null;
-                        },
-                        decoration: InputDecoration(
-                          label: const Text('Full Name'),
-                          hintText: 'Enter Full Name',
-                          hintStyle: const TextStyle(color: Colors.black26),
-                          border: OutlineInputBorder(
-                            borderSide: const BorderSide(color: Colors.black12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderSide: const BorderSide(color: Colors.black12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 25.0),
-                      // Champ email
-                      TextFormField(
-                        controller: _emailController,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter Email';
-                          }
-                          if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
-                            return 'Please enter a valid Email';
-                          }
-                          return null;
-                        },
-                        decoration: InputDecoration(
-                          label: const Text('Email'),
-                          hintText: 'Enter Email',
-                          hintStyle: const TextStyle(color: Colors.black26),
-                          border: OutlineInputBorder(
-                            borderSide: const BorderSide(color: Colors.black12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderSide: const BorderSide(color: Colors.black12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 25.0),
-                      // Champ mot de passe
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: true,
-                        obscuringCharacter: '*',
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter Password';
-                          }
-                          if (value.length < 6) {
-                            return 'Password must be at least 6 characters';
-                          }
-                          return null;
-                        },
-                        decoration: InputDecoration(
-                          label: const Text('Password'),
-                          hintText: 'Enter Password',
-                          hintStyle: const TextStyle(color: Colors.black26),
-                          border: OutlineInputBorder(
-                            borderSide: const BorderSide(color: Colors.black12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderSide: const BorderSide(color: Colors.black12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 25.0),
-                      // Case à cocher
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Checkbox(
-                            value: agreePersonalData,
-                            onChanged: (bool? value) {
-                              setState(() {
-                                agreePersonalData = value!;
-                              });
-                            },
-                            activeColor: lightColorScheme.primary,
-                          ),
-                          Expanded(
-                            child: RichText(
-                              text: TextSpan(
-                                text: 'I agree to the processing of ',
-                                style: const TextStyle(
-                                  color: Colors.black45,
-                                  fontSize: 14,
-                                ),
-                                children: [
-                                  TextSpan(
-                                    text: 'Personal data',
-                                    style: TextStyle(
-                                      color: lightColorScheme.primary,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20.0),
-                      // Bouton d'inscription
+                      const SizedBox(height: 40),
+                      _buildTextField(_fullNameController, 'Full Name', 'Enter Full Name'),
+                      const SizedBox(height: 25),
+                      _buildEmailField(),
+                      const SizedBox(height: 25),
+                      _buildPasswordField(),
+                      const SizedBox(height: 25),
+                      _buildRoleDropdown(),
+                      const SizedBox(height: 25),
+                      _buildAgreementCheckbox(),
+                      const SizedBox(height: 20),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: _signUp,
+                          onPressed: _agreeToTerms ? _signUp : null,
                           child: const Text('Sign up'),
                         ),
                       ),
-                      const SizedBox(height: 30.0),
-                      // Lien vers connexion
+                      const SizedBox(height: 30),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Text(
-                            'Already have an account? ',
-                            style: TextStyle(color: Colors.black45),
-                          ),
+                          const Text("Already have an account? ", style: TextStyle(color: Colors.black45)),
                           GestureDetector(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (e) => const SignInScreen(),
-                                ),
-                              );
-                            },
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const SignInScreen()),
+                            ),
                             child: Text(
                               'Sign in',
                               style: TextStyle(
@@ -283,7 +124,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 20.0),
+                      const SizedBox(height: 20),
                     ],
                   ),
                 ),
@@ -292,6 +133,114 @@ class _SignUpScreenState extends State<SignUpScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildTextField(TextEditingController controller, String label, String hint) {
+    return TextFormField(
+      controller: controller,
+      validator: (value) =>
+          value == null || value.isEmpty ? 'Please enter $label' : null,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        hintStyle: const TextStyle(color: Colors.black26),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  Widget _buildEmailField() {
+    return TextFormField(
+      controller: _emailController,
+      validator: (value) {
+        if (value == null || value.isEmpty) return 'Please enter Email';
+        if (!RegExp(r'^[\w-.]+@([\w-]+\.)+[\w-]{2,4}\$').hasMatch(value)) {
+          return 'Enter a valid Email';
+        }
+        return null;
+      },
+      decoration: InputDecoration(
+        labelText: 'Email',
+        hintText: 'Enter Email',
+        hintStyle: const TextStyle(color: Colors.black26),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  Widget _buildPasswordField() {
+    return TextFormField(
+      controller: _passwordController,
+      obscureText: _obscurePassword,
+      obscuringCharacter: '•',
+      validator: (value) {
+        if (value == null || value.isEmpty) return 'Please enter Password';
+        if (value.length < 6) return 'Password must be at least 6 characters';
+        if (!RegExp(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)').hasMatch(value)) {
+          return 'Must contain uppercase, lowercase, and number';
+        }
+        return null;
+      },
+      decoration: InputDecoration(
+        labelText: 'Password',
+        hintText: 'Enter Password',
+        hintStyle: const TextStyle(color: Colors.black26),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        suffixIcon: IconButton(
+          icon: Icon(
+            _obscurePassword ? Icons.visibility_off : Icons.visibility,
+            color: Colors.grey,
+          ),
+          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRoleDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _selectedRole,
+      items: const [
+        DropdownMenuItem(value: 'candidate', child: Text('Candidat')),
+        DropdownMenuItem(value: 'recruiter', child: Text('Recruteur')),
+      ],
+      onChanged: (value) => setState(() => _selectedRole = value),
+      decoration: InputDecoration(
+        labelText: 'Role',
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+      validator: (value) => value == null ? 'Please select a role' : null,
+    );
+  }
+
+  Widget _buildAgreementCheckbox() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Checkbox(
+          value: _agreeToTerms,
+          onChanged: (value) => setState(() => _agreeToTerms = value ?? false),
+          activeColor: lightColorScheme.primary,
+        ),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              text: 'I agree to the processing of ',
+              style: const TextStyle(color: Colors.black45, fontSize: 14),
+              children: [
+                TextSpan(
+                  text: 'Personal data',
+                  style: TextStyle(
+                    color: lightColorScheme.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

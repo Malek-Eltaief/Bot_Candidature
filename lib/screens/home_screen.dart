@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import '../screens/signin_screen.dart';
+import '../screens/add_job_screen.dart';
+import '../screens/job_details_screen.dart';
 import '../theme/theme.dart';
 import '../widgets/custom_scaffold.dart';
+import '../services/database_service.dart';
+import '../models/job_model.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -12,51 +14,98 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // Fonction de déconnexion
-  Future<void> _signOut() async {
-    try {
-      await FirebaseAuth.instance.signOut();
-      // Vérifier si le widget est toujours monté avant d'utiliser context
-      if (!mounted) return;
+  final TextEditingController _searchController = TextEditingController();
+  final _dbService = DatabaseService();
+  String _searchQuery = '';
+  bool _isRecruiter = false;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Sign out successful'),
-        ),
-      );
+  @override
+  void initState() {
+    super.initState();
+    _checkUserRole();
+    _searchController.addListener(() {
+      setState(() {
+        _searchQuery = _searchController.text;
+      });
+    });
+  }
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const SignInScreen()),
-      );
-    } catch (e) {
-      // Vérifier si le widget est toujours monté avant d'utiliser context
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error during sign out: $e'),
-        ),
-      );
+  Future<void> _checkUserRole() async {
+    final role = await _dbService.getUserRole();
+    if (mounted) {
+      setState(() {
+        _isRecruiter = role == 'recruiter';
+      });
     }
+  }
+
+  Future<void> _toggleFavorite(String jobId) async {
+    await _dbService.toggleFavorite(jobId);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Favorite status updated')),
+    );
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Récupérer l'utilisateur connecté
-    final User? user = FirebaseAuth.instance.currentUser;
-
     return CustomScaffold(
+      floatingActionButton: _isRecruiter
+          ? FloatingActionButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const AddJobScreen()),
+                );
+              },
+              backgroundColor: lightColorScheme.primary,
+              child: const Icon(Icons.add, color: Colors.white),
+            )
+          : null,
+      bottomNavigationBar: BottomNavigationBar(
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.favorite), label: 'Favorites'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+        ],
+        currentIndex: 0,
+        selectedItemColor: lightColorScheme.primary,
+        onTap: (index) {
+          if (index == 0) {
+            Navigator.pushReplacementNamed(context, '/home');
+          } else if (index == 1) {
+            Navigator.pushReplacementNamed(context, '/favorites');
+          } else if (index == 2) {
+            Navigator.pushReplacementNamed(context, '/profile');
+          }
+        },
+      ),
       child: Column(
         children: [
-          const Expanded(
-            flex: 1,
-            child: SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 25.0, vertical: 20.0),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Search for jobs...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(30.0),
+                  borderSide: BorderSide.none,
+                ),
+                filled: true,
+                fillColor: Colors.grey[200],
+              ),
+            ),
           ),
           Expanded(
-            flex: 7,
             child: Container(
-              padding: const EdgeInsets.fromLTRB(25.0, 50.0, 25.0, 20.0),
               decoration: const BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.only(
@@ -64,44 +113,82 @@ class _HomeScreenState extends State<HomeScreen> {
                   topRight: Radius.circular(40.0),
                 ),
               ),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    // Titre de bienvenue
-                    Text(
-                      'Welcome!',
-                      style: TextStyle(
-                        fontSize: 30.0,
-                        fontWeight: FontWeight.w900,
-                        color: lightColorScheme.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 20.0),
-                    // Afficher le nom ou l'email de l'utilisateur
-                    Text(
-                      user != null
-                          ? 'Hello, ${user.displayName ?? user.email ?? "User"}'
-                          : 'No user signed in',
-                      style: const TextStyle(
-                        fontSize: 20.0,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.black87,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 40.0),
-                    // Bouton de déconnexion
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _signOut,
-                        child: const Text('Sign out'),
-                      ),
-                    ),
-                    const SizedBox(height: 20.0),
-                  ],
-                ),
+              child: StreamBuilder(
+                stream: _dbService.getJobsStream(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return const Center(child: Text('An error occurred'));
+                  }
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                    return const Center(child: Text('No jobs available'));
+                  }
+
+                  final jobs = snapshot.data!.docs.map((doc) => JobModel.fromFirestore(doc)).where((job) {
+                    final title = job.title.toLowerCase();
+                    final company = job.company.toLowerCase();
+                    return title.contains(_searchQuery.toLowerCase()) ||
+                        company.contains(_searchQuery.toLowerCase());
+                  }).toList();
+
+                  return ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(20.0),
+                    itemCount: jobs.length,
+                    itemBuilder: (context, index) {
+                      final job = jobs[index];
+                      return Card(
+                        elevation: 3,
+                        margin: const EdgeInsets.symmetric(vertical: 8.0),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15.0),
+                        ),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.all(15.0),
+                          title: Text(
+                            job.title,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18.0,
+                            ),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(job.company),
+                              Text(job.location),
+                              Text(job.contractType),
+                            ],
+                          ),
+                          trailing: StreamBuilder(
+                            stream: _dbService.isJobFavorite(job.id),
+                            builder: (context, favSnapshot) {
+                              bool isFavorite = favSnapshot.hasData && favSnapshot.data!.exists;
+                              return IconButton(
+                                icon: Icon(
+                                  isFavorite ? Icons.favorite : Icons.favorite_border,
+                                  color: isFavorite ? Colors.red : Colors.grey,
+                                ),
+                                onPressed: () => _toggleFavorite(job.id),
+                              );
+                            },
+                          ),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => JobDetailsScreen(jobId: job.id),
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    },
+                  );
+                },
               ),
             ),
           ),
